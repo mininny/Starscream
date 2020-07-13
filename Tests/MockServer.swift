@@ -127,4 +127,8 @@ public class MockServer: Server, ConnectionDelegate {
     public func didReceive(event: ServerEvent) {
         onEvent?(event)
     }
+    
+    public func connection(for transport: MockTransport) -> MockConnection? {
+        return self.connections[transport.uuid]
+    }
 }

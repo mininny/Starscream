@@ -12,6 +12,7 @@ import XCTest
 class FuzzingTests: XCTestCase {
     
     var websocket: WebSocket!
+    var transport: MockTransport!
     var server: MockServer!
     var uuid = ""
     
@@ -24,6 +25,7 @@ class FuzzingTests: XCTestCase {
         
         let transport = MockTransport(server: s)
         uuid = transport.uuid
+        self.transport = transport
         
         let url = URL(string: "http://vluxe.io/ws")! //domain doesn't matter with the mock transport
         let request = URLRequest(url: url)        
@@ -35,8 +37,9 @@ class FuzzingTests: XCTestCase {
         super.tearDown()
     }
     
-    func runWebsocket(timeout: TimeInterval = 10, serverAction: @escaping ((ServerEvent) -> Bool)) {
+    func runWebsocket(timeout: TimeInterval = 10, invertExpectation: Bool = false, serverAction: @escaping ((ServerEvent) -> Bool)) {
         let e = expectation(description: "Websocket event timeout")
+        e.isInverted = invertExpectation
         server.onEvent = { event in
             let done = serverAction(event)
             if done {
@@ -97,8 +100,53 @@ class FuzzingTests: XCTestCase {
                 } else {
                     XCTFail("binary does not match: source: [\(payload.count)] response: [\(data.count)]")
                 }
-                case .disconnected(_, _, _):
-                    return false
+            case .disconnected(_, _, _):
+                return false
+            default:
+                XCTFail("recieved unexpected server event: \(event)")
+            }
+            return false
+        }
+    }
+    
+    func sendPing(payload: String, isBinary: Bool = false, expectSuccess: Bool = true) {
+        let payload = payload.data(using: .utf8)!
+        let code: FrameOpCode = .ping
+        
+        let connection = server.connection(for: self.transport)
+        if connection != nil {
+            connection!.write(data: payload, opcode: code)
+        }
+        
+        runWebsocket { event in
+            switch event {
+            case .connected(let conn, _) where connection == nil:
+                conn.write(data: payload, opcode: code)
+            case .pong(let conn, let pong):
+                if pong == payload {
+                    conn.write(data: Data(), opcode: .connectionClose)
+                    return true
+                } else {
+                    XCTFail()//"text does not match: source: [\(string)] response: [\(text)]")
+                }
+            case .disconnected(_, _, _):
+                return !expectSuccess
+            default:
+                XCTFail("recieved unexpected server event: \(event)")
+            }
+            return false
+        }
+    }
+    
+    func sendPong(payload: String, isBinary: Bool = false) {
+        let payload = payload.data(using: .utf8)!
+        let code: FrameOpCode = .pong
+        runWebsocket(timeout: 5.0, invertExpectation: true) { event in
+            switch event {
+            case .connected(let conn, _):
+                conn.write(data: payload, opcode: code)
+            case .disconnected(_, _, _):
+                return true
             default:
                 XCTFail("recieved unexpected server event: \(event)")
             }
@@ -108,8 +156,7 @@ class FuzzingTests: XCTestCase {
     
     //These are the Autobahn test cases as unit tests
     
-    
-    /// MARK : - Framing cases
+    // MARK: - Framing cases
     
     // case 1.1.1
     func testCase1() {
@@ -179,6 +226,54 @@ class FuzzingTests: XCTestCase {
     // case 1.2.7, 1.2.8
     func testCase15() {
         sendMessage(string: String(repeating: "*", count: 65536), isBinary: true)
+    }
+    
+    // case 2.1
+    func testCase2_1() {
+        sendPing(payload: "")
+    }
+    
+    // case 2.2
+    func testCase2_2() {
+        sendPing(payload: "*")
+    }
+    
+    // case 2.3
+    func testCase2_3() {
+        sendPing(payload: "*", isBinary: true)
+    }
+    
+    // case 2.4
+    func testCase2_4() {
+        sendPing(payload: String(repeating: "*", count: 125), isBinary: true)
+    }
+    
+    // case 2.5, 2.6
+    func testCase2_5_6() {
+        sendPing(payload: String(repeating: "*", count: 126), isBinary: true, expectSuccess: false)
+    }
+    
+    // case 2.7
+    func testCase2_7() {
+        sendPong(payload: "")
+    }
+    
+    // case 2.8
+    func testCase2_8() {
+        sendPong(payload: "*")
+    }
+    
+    // case 2.9
+    func testCase2_9() {
+        sendPong(payload: "*")
+        sendPing(payload: "*")
+    }
+    
+    // case 2.10, 2.11
+    func testCase2_10_11() {
+        for _ in 0..<10 {
+            sendPing(payload: "*")
+        }
     }
     
     //TODO: the rest of them.
