@@ -14,6 +14,7 @@ class FuzzingTests: XCTestCase {
     var websocket: WebSocket!
     var transport: MockTransport!
     var server: MockServer!
+    var framer: WSFramer!
     var uuid = ""
     
     override func setUp() {
@@ -28,17 +29,23 @@ class FuzzingTests: XCTestCase {
         self.transport = transport
         
         let url = URL(string: "http://vluxe.io/ws")! //domain doesn't matter with the mock transport
-        let request = URLRequest(url: url)        
-        websocket = WebSocket(request: request, engine: WSEngine(transport: transport))
+        let request = URLRequest(url: url)
         
+        framer = WSFramer()
+        let engine = WSEngine(transport: transport, certPinner: nil, headerValidator: FoundationSecurity(), httpHandler: FoundationHTTPHandler(), framer: framer, compressionHandler: nil)
+        websocket = WebSocket(request: request, engine: engine)
     }
     
     override func tearDown() {
+        transport.disconnect()
+        websocket.disconnect()
+        
         super.tearDown()
     }
     
-    func runWebsocket(timeout: TimeInterval = 10, invertExpectation: Bool = false, serverAction: @escaping ((ServerEvent) -> Bool)) {
+    func runWebsocket(timeout: TimeInterval = 10, expectedFulfillmentCount: Int = 1, invertExpectation: Bool = false, serverAction: @escaping ((ServerEvent) -> Bool)) {
         let e = expectation(description: "Websocket event timeout")
+        e.expectedFulfillmentCount = expectedFulfillmentCount
         e.isInverted = invertExpectation
         server.onEvent = { event in
             let done = serverAction(event)
@@ -276,5 +283,296 @@ class FuzzingTests: XCTestCase {
         }
     }
     
+    
+    // case 3...
+    
+    // case 4.1.1
+    func testCase4_1_1() {
+        runWebsocket { event in
+            switch event {
+            case .connected(let conn, _):
+                conn.write(data: Data(), opcode: FrameOpCode(rawValue: 3)!)
+            case .text(let conn, let text):
+                XCTFail("Should not happen")
+            case .binary(let conn, let data):
+                XCTFail("Should not happen")
+            case .disconnected(_, _, _):
+                return true
+            default:
+                XCTFail("recieved unexpected server event: \(event)")
+            }
+            return false
+        }
+    }
+    
+    func testCase4_1_2() {
+        runWebsocket { event in
+            switch event {
+            case .connected(let conn, _):
+                conn.write(data: "*".data(using: .utf8)!, opcode: FrameOpCode(rawValue: 4)!)
+            case .text:
+                XCTFail("Should not happen")
+            case .binary:
+                XCTFail("Should not happen")
+            case .disconnected(_, _, _):
+                return true
+            default:
+                XCTFail("recieved unexpected server event: \(event)")
+            }
+            return false
+        }
+    }
+    
+    func testCase4_1_3() {
+        runWebsocket { event in
+            switch event {
+            case .connected(let conn, _):
+                conn.write(data: "*".data(using: .utf8)!, opcode: .textFrame)
+                conn.write(data: Data(), opcode: .raw(value: 0x5))
+            case .text(let conn, let text):
+                XCTAssertEqual(text, "*")
+                conn.write(data: Data(), opcode: .ping)
+            case .binary:
+                XCTFail("Should not happen")
+            case .disconnected(_, _, _):
+                return true
+            case .pong:
+                XCTFail("Pong for ping should not be received.")
+            default:
+                XCTFail("recieved unexpected server event: \(event)")
+            }
+            return false
+        }
+    }
+    
+    func testCase4_1_4() {
+        runWebsocket { event in
+            switch event {
+            case .connected(let conn, _):
+                conn.write(data: "*".data(using: .utf8)!, opcode: .textFrame)
+                conn.write(data: Data(), opcode: .raw(value: 0x6))
+            case .text(let conn, let text):
+                XCTAssertEqual(text, "*")
+                conn.write(data: Data(), opcode: .ping)
+            case .binary:
+                XCTFail("Should not happen")
+            case .disconnected(_, _, _):
+                return true
+            case .pong:
+                XCTFail("Pong for ping should not be received.")
+            default:
+                XCTFail("recieved unexpected server event: \(event)")
+            }
+            return false
+        }
+    }
+    
+    func testCase4_1_5() {
+        runWebsocket { event in
+            switch event {
+            case .connected(let conn, _):
+                conn.write(data: "*".data(using: .utf8)!, opcode: .textFrame)
+                conn.write(data: Data(), opcode: .raw(value: 0x7))
+            case .text(let conn, let text):
+                XCTAssertEqual(text, "*")
+                conn.write(data: Data(), opcode: .ping)
+            case .binary:
+                XCTFail("Should not happen")
+            case .disconnected(_, _, _):
+                return true
+            case .pong:
+                XCTFail("Pong for ping should not be received.")
+            default:
+                XCTFail("recieved unexpected server event: \(event)")
+            }
+            return false
+        }
+    }
+    
+    func testCase4_2_1() {
+        runWebsocket { event in
+            switch event {
+            case .connected(let conn, _):
+                conn.write(data: Data(), opcode: .raw(value: 0x11))
+            case .disconnected(_, _, _):
+                return true
+            default:
+                XCTFail("recieved unexpected server event: \(event)")
+            }
+            return false
+        }
+    }
+    
+    func testCase4_2_2() {
+        runWebsocket { event in
+            switch event {
+            case .connected(let conn, _):
+                conn.write(data: "*".data(using: .utf8)!, opcode: .raw(value: 0x12))
+            case .disconnected(_, _, _):
+                return true
+            default:
+                XCTFail("recieved unexpected server event: \(event)")
+            }
+            return false
+        }
+    }
+    
+    func testCase4_2_3() {
+        runWebsocket { event in
+            switch event {
+            case .connected(let conn, _):
+                conn.write(data: "*".data(using: .utf8)!, opcode: .textFrame)
+                conn.write(data: Data(), opcode: .raw(value: 0x13))
+            case .text(let conn, let text):
+                XCTAssertEqual(text, "*")
+                conn.write(data: Data(), opcode: .ping)
+            case .disconnected(_, _, _):
+                return true
+            case .pong:
+                XCTFail("Pong for ping should not be received.")
+            default:
+                XCTFail("recieved unexpected server event: \(event)")
+            }
+            return false
+        }
+    }
+    
+    func testCase4_2_4() {
+        runWebsocket { event in
+            switch event {
+            case .connected(let conn, _):
+                conn.write(data: "*".data(using: .utf8)!, opcode: .textFrame)
+                conn.write(data: "*".data(using: .utf8)!, opcode: .raw(value: 0x14))
+            case .text(let conn, let text):
+                XCTAssertEqual(text, "*")
+                conn.write(data: Data(), opcode: .ping)
+            case .binary(let conn, let data):
+                print("Data:\(data)")
+            case .disconnected(_, _, _):
+                return true
+            case .pong:
+                XCTFail("Pong for ping should not be received.")
+            default:
+                XCTFail("recieved unexpected server event: \(event)")
+            }
+            return false
+        }
+    }
+    
+    func testCase4_2_5() {
+        runWebsocket { event in
+            switch event {
+            case .connected(let conn, _):
+                conn.write(data: "*".data(using: .utf8)!, opcode: .textFrame)
+                conn.write(data: "*".data(using: .utf8)!, opcode: .raw(value: 0x15))
+            case .text(let conn, let text):
+                XCTAssertEqual(text, "*")
+                conn.write(data: Data(), opcode: .ping)
+            case .disconnected(_, _, _):
+                return true
+            case .pong:
+                XCTFail("Pong for ping should not be received.")
+            default:
+                XCTFail("recieved unexpected server event: \(event)")
+            }
+            return false
+        }
+    }
+
+    // func testCase5...
+    func testCase5_1() {
+        let ping = framer.createWriteFrame(opcode: .ping, payload: Data(), isCompressed: false)
+        let datas = splitData(ping, into: 2)
+        
+        runWebsocket(expectedFulfillmentCount: 2) { [weak self] event in
+            guard let self = self else { return false }
+            switch event {
+            case .connected:
+                self.transport.received(data: datas[0])
+                self.transport.received(data: datas[1])
+            case .disconnected(_, _, _):
+                return true
+            case .pong:
+                XCTFail("Pong for ping should not be received.")
+            default:
+                XCTFail("recieved unexpected server event: \(event)")
+            }
+            return false
+        }
+    }
+    
+    func testCase5_2() {
+        let ping = framer.createWriteFrame(opcode: .pong, payload: Data(), isCompressed: false)
+        let datas = splitData(ping, into: 2)
+        
+        runWebsocket(expectedFulfillmentCount: 2) { [weak self] event in
+            guard let self = self else { return false }
+            switch event {
+            case .connected:
+                self.transport.received(data: datas[0])
+                self.transport.received(data: datas[1])
+            case .disconnected(_, _, _):
+                return true
+            case .pong:
+                XCTFail("Pong for ping should not be received.")
+            default:
+                XCTFail("recieved unexpected server event: \(event)")
+            }
+            return false
+        }
+    }
+
+    func testCase5_3() {
+        let ping = framer.createWriteFrame(opcode: .textFrame, payload: "**".data(using: .utf8)!, isCompressed: false)
+        let datas = splitData(ping, into: 2)
+        
+        runWebsocket(expectedFulfillmentCount: 2) { [weak self] event in
+            guard let self = self else { return false }
+            switch event {
+            case .connected:
+                self.transport.received(data: datas[0])
+                self.transport.received(data: datas[1])
+            case .binary(let conn, let data):
+                print("DATA:\(data)")
+            case .text(let conn, let text):
+                print("TExt:\(text)")
+            case .disconnected(_, _, _):
+                return false
+            case .pong:
+                XCTFail("Pong for ping should not be received.")
+            default:
+                XCTFail("recieved unexpected server event: \(event)")
+            }
+            return false
+        }
+    }
+
+    
+    func splitData(_ data: Data, into chunkCount: Int) -> [Data] {
+        let dataLen = (data as NSData).length
+        
+//        assert(dataLen > chunkCount)
+        
+        let diff = dataLen / chunkCount
+        let fullChunks = Int(dataLen / 1024) // 1 Kbyte
+        let totalChunks = fullChunks + (dataLen % 1024 != 0 ? 1 : 0)
+
+        var chunks:[Data] = [Data]()
+        for chunkCounter in 0..<chunkCount {
+            var chunk:Data
+            let chunkBase = chunkCounter * diff
+//            var diff = 1024
+//            if chunkCounter == totalChunks - 1
+//            {
+//                diff = dataLen - chunkBase
+//            }
+
+            let range = chunkBase..<(chunkBase + diff)
+            chunk = data.subdata(in: range)
+
+            chunks.append(chunk)
+        }
+        return chunks
+    }
     //TODO: the rest of them.
 }

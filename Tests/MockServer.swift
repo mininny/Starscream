@@ -38,6 +38,10 @@ public class MockConnection: Connection, HTTPServerDelegate, FramerEventClient, 
         transport.received(data: wsData)
     }
     
+    public func createWriteFrame(opcode: FrameOpCode, payload: Data, isCompressed: Bool) -> Data {
+        return framer.createWriteFrame(opcode: opcode, payload: payload, isCompressed: isCompressed)
+    }
+    
     /// MARK: - HTTPServerDelegate
     
     public func didReceive(event: HTTPEvent) {

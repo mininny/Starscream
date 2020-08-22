@@ -44,16 +44,44 @@ public enum CloseCode: UInt16 {
     case messageTooBig          = 1009
 }
 
-public enum FrameOpCode: UInt8 {
-    case continueFrame = 0x0
-    case textFrame = 0x1
-    case binaryFrame = 0x2
+public enum FrameOpCode: RawRepresentable {
+    public init?(rawValue: UInt8) {
+        switch rawValue {
+        case 0x0: self = .continueFrame
+        case 0x1: self = .textFrame
+        case 0x2: self = .binaryFrame
+        case 0x8: self = .connectionClose
+        case 0x9: self = .ping
+        case 0xA: self = .pong
+        case 100: self = .unknown
+        default: self = .raw(value: rawValue)
+        }
+    }
+    
+    public typealias RawValue = UInt8
+    case continueFrame
+    case textFrame
+    case binaryFrame
     // 3-7 are reserved.
-    case connectionClose = 0x8
-    case ping = 0x9
-    case pong = 0xA
+    case connectionClose
+    case ping
+    case pong
     // B-F reserved.
-    case unknown = 100
+    case unknown
+    case raw(value: UInt8)
+    
+    public var rawValue: UInt8 {
+        switch self {
+        case .continueFrame: return 0x0
+        case .textFrame: return 0x1
+        case .binaryFrame: return 0x2
+        case .connectionClose: return 0x8
+        case .ping: return 0x9
+        case .pong: return 0xA
+        case .unknown: return 100
+        case .raw(let value): return value
+        }
+    }
 }
 
 public struct Frame {
