@@ -43,7 +43,7 @@ class FuzzingTests: XCTestCase {
         super.tearDown()
     }
     
-    func runWebsocket(timeout: TimeInterval = 10, expectedFulfillmentCount: Int = 1, invertExpectation: Bool = false, autoReconnect: Bool = true, serverAction: @escaping ((ServerEvent) -> Bool)) {
+    func runWebsocket(timeout: TimeInterval = 10, expectedFulfillmentCount: Int = 1, invertExpectation: Bool = false, serverAction: @escaping ((ServerEvent) -> Bool)) {
         let e = expectation(description: "Websocket event timeout")
         e.expectedFulfillmentCount = expectedFulfillmentCount
         e.isInverted = invertExpectation
@@ -470,9 +470,7 @@ class FuzzingTests: XCTestCase {
             case .connected(let conn, _):
                 guard let conn = (conn as? MockConnection) else { return false }
                 
-                var firstFrame = conn.createWriteFrame(opcode: .ping, payload: Data(), isCompressed: false)
-                firstFrame[0] = FrameOpCode.ping.rawValue | 0
-                
+                let firstFrame = conn.createWriteFrame(opcode: .ping, payload: Data(), isFinal: false)
                 let lastFrame = conn.createWriteFrame(opcode: .continueFrame, payload: Data(), isCompressed: false)
                 
                 self.transport.received(data: firstFrame)
@@ -495,9 +493,7 @@ class FuzzingTests: XCTestCase {
             case .connected(let conn, _):
                 guard let conn = (conn as? MockConnection) else { return false }
                 
-                var firstFrame = conn.createWriteFrame(opcode: .pong, payload: Data(), isCompressed: false)
-                firstFrame[0] = FrameOpCode.ping.rawValue | 0
-                
+                let firstFrame = conn.createWriteFrame(opcode: .pong, payload: Data(), isFinal: false)
                 let lastFrame = conn.createWriteFrame(opcode: .continueFrame, payload: Data(), isCompressed: false)
                 
                 self.transport.received(data: firstFrame)
@@ -519,9 +515,7 @@ class FuzzingTests: XCTestCase {
             case .connected(let conn, _):
                 guard let conn = (conn as? MockConnection) else { return false }
                 
-                var firstFrame = conn.createWriteFrame(opcode: .textFrame, payload: "*".data(using: .utf8)!, isCompressed: false)
-                firstFrame[0] = FrameOpCode.textFrame.rawValue | 0
-                
+                let firstFrame = conn.createWriteFrame(opcode: .textFrame, payload: "*".data(using: .utf8)!, isFinal: false)
                 let lastFrame = conn.createWriteFrame(opcode: .continueFrame, payload: "*".data(using: .utf8)!, isCompressed: false)
                 
                 self.transport.received(data: firstFrame)
@@ -546,9 +540,7 @@ class FuzzingTests: XCTestCase {
             case .connected(let conn, _):
                 guard let conn = (conn as? MockConnection) else { return false }
                 
-                var firstFrame = conn.createWriteFrame(opcode: .textFrame, payload: "***".data(using: .utf8)!, isCompressed: false)
-                firstFrame[0] = FrameOpCode.textFrame.rawValue | 0
-                
+                let firstFrame = conn.createWriteFrame(opcode: .textFrame, payload: "***".data(using: .utf8)!, isFinal: false)
                 let lastFrame = conn.createWriteFrame(opcode: .continueFrame, payload: "***".data(using: .utf8)!, isCompressed: false)
                 
                 self.transport.received(data: firstFrame)
@@ -573,8 +565,7 @@ class FuzzingTests: XCTestCase {
             case .connected(let conn, _):
                 guard let conn = (conn as? MockConnection) else { return false }
                 
-                var firstFrame = conn.createWriteFrame(opcode: .textFrame, payload: "**".data(using: .utf8)!, isCompressed: false)
-                firstFrame[0] = FrameOpCode.textFrame.rawValue | 0
+                let firstFrame = conn.createWriteFrame(opcode: .textFrame, payload: "**".data(using: .utf8)!, isFinal: false)
                 let lastFrame = conn.createWriteFrame(opcode: .continueFrame, payload: "**".data(using: .utf8)!, isCompressed: false)
                 let ping = conn.createWriteFrame(opcode: .ping, payload: "xx".data(using: .utf8)!, isCompressed: false)
                 
@@ -601,8 +592,7 @@ class FuzzingTests: XCTestCase {
             case .connected(let conn, _):
                 guard let conn = (conn as? MockConnection) else { return false }
                 
-                var firstFrame = conn.createWriteFrame(opcode: .textFrame, payload: "*".data(using: .utf8)!, isCompressed: false)
-                firstFrame[0] = FrameOpCode.textFrame.rawValue | 0
+                let firstFrame = conn.createWriteFrame(opcode: .textFrame, payload: "*".data(using: .utf8)!, isFinal: false)
                 let lastFrame = conn.createWriteFrame(opcode: .continueFrame, payload: "*".data(using: .utf8)!, isCompressed: false)
                 let ping = conn.createWriteFrame(opcode: .ping, payload: "xx".data(using: .utf8)!, isCompressed: false)
                 
@@ -624,7 +614,7 @@ class FuzzingTests: XCTestCase {
     }
     
     func testCase5_9() {
-        runWebsocket(autoReconnect: false) { event in
+        runWebsocket { event in
             switch event {
             case .connected(let conn, _):
                 guard let conn = (conn as? MockConnection) else { return false }
@@ -647,7 +637,7 @@ class FuzzingTests: XCTestCase {
     }
     
     func testCase5_10() {
-        runWebsocket(autoReconnect: false) { event in
+        runWebsocket { event in
             switch event {
             case .connected(let conn, _):
                 guard let conn = (conn as? MockConnection) else { return false }
@@ -669,7 +659,248 @@ class FuzzingTests: XCTestCase {
         }
     }
     
-    // testCase 5.x...
+    func testCase5_11() {
+        runWebsocket { event in
+            switch event {
+            case .connected(let conn, _):
+                guard let conn = (conn as? MockConnection) else { return false }
+                
+                let continuationFrame = conn.createWriteFrame(opcode: .continueFrame, payload: Data(), isCompressed: false)
+                let textFrame = conn.createWriteFrame(opcode: .textFrame, payload: "*".data(using: .utf8)!, isCompressed: false)
+                
+                self.transport.received(data: continuationFrame)
+                self.transport.received(data: textFrame)
+            case .text:
+                XCTFail("Text should not be received after FIN")
+            case .disconnected(_, _, _):
+                self.transport.disconnect()
+                return true
+            default:
+                XCTFail("recieved unexpected server event: \(event)")
+            }
+            return false
+        }
+    }
+    
+    func testCase5_12() {
+        runWebsocket { event in
+            switch event {
+            case .connected(let conn, _):
+                guard let conn = (conn as? MockConnection) else { return false }
+                
+                var continuationFrame = conn.createWriteFrame(opcode: .continueFrame, payload: Data(), isFinal: false)
+                let textFrame = conn.createWriteFrame(opcode: .textFrame, payload: "**".data(using: .utf8)!, isCompressed: false)
+                continuationFrame.append(textFrame)
+                
+                self.transport.received(data: continuationFrame)
+            case .text:
+                XCTFail("Text should not be received after FIN")
+            case .disconnected(_, _, _):
+                self.transport.disconnect()
+                return true
+            default:
+                XCTFail("recieved unexpected server event: \(event)")
+            }
+            return false
+        }
+    }
+    
+    func testCase5_13() {
+        runWebsocket { event in
+            switch event {
+            case .connected(let conn, _):
+                guard let conn = (conn as? MockConnection) else { return false }
+                
+                let continuationFrame = conn.createWriteFrame(opcode: .continueFrame, payload: Data(), isFinal: false)
+                let textFrame = conn.createWriteFrame(opcode: .textFrame, payload: "**".data(using: .utf8)!)
+                
+                self.transport.received(data: continuationFrame)
+                self.transport.received(data: textFrame)
+            case .text:
+                XCTFail("Text should not be received after FIN")
+            case .disconnected(_, _, _):
+                self.transport.disconnect()
+                return true
+            default:
+                XCTFail("recieved unexpected server event: \(event)")
+            }
+            return false
+        }
+    }
+    
+    func testCase5_14() {
+        runWebsocket { event in
+            switch event {
+            case .connected(let conn, _):
+                guard let conn = (conn as? MockConnection) else { return false }
+                
+                let continuationFrame = conn.createWriteFrame(opcode: .continueFrame, payload: Data(), isFinal: false)
+                let textFrame = conn.createWriteFrame(opcode: .textFrame, payload: "*".data(using: .utf8)!)
+                
+                self.transport.received(data: continuationFrame)
+                self.transport.received(data: textFrame)
+            case .text:
+                XCTFail("Text should not be received after FIN")
+            case .disconnected(_, _, _):
+                self.transport.disconnect()
+                return true
+            default:
+                XCTFail("recieved unexpected server event: \(event)")
+            }
+            return false
+        }
+    }
+    
+    func testCase5_15() {
+        runWebsocket { event in
+            switch event {
+            case .connected(let conn, _):
+                guard let conn = (conn as? MockConnection) else { return false }
+                
+                var textFrame1 = conn.createWriteFrame(opcode: .textFrame, payload: "*".data(using: .utf8)!, isFinal: false)
+                let textFrame2 = conn.createWriteFrame(opcode: .continueFrame, payload: "*".data(using: .utf8)!)
+                
+                let continuationFrame = conn.createWriteFrame(opcode: .continueFrame, payload: Data(), isFinal: false)
+                let textFrame = conn.createWriteFrame(opcode: .textFrame, payload: "**".data(using: .utf8)!)
+                
+                // One chop
+                textFrame1.append(textFrame2)
+                textFrame1.append(continuationFrame)
+                textFrame1.append(textFrame)
+                
+                self.transport.received(data: textFrame1)
+            case .text:
+                XCTFail("Text should not be received after FIN")
+            case .disconnected(_, _, _):
+                self.transport.disconnect()
+                return true
+            default:
+                XCTFail("recieved unexpected server event: \(event)")
+            }
+            return false
+        }
+    }
+    
+    func testCase5_16() {
+        runWebsocket { event in
+            switch event {
+            case .connected(let conn, _):
+                guard let conn = (conn as? MockConnection) else { return false }
+                
+                let continuationFrame = conn.createWriteFrame(opcode: .continueFrame, payload: Data(), isFinal: false)
+                
+                let textFrame1 = conn.createWriteFrame(opcode: .textFrame, payload: "*".data(using: .utf8)!, isFinal: false)
+                let textFrame2 = conn.createWriteFrame(opcode: .continueFrame, payload: "*".data(using: .utf8)!)
+                
+                
+                (0..<2).forEach { _ in
+                    self.transport.received(data: continuationFrame)
+                    self.transport.received(data: textFrame1)
+                    self.transport.received(data: textFrame2)
+                }
+            case .text:
+                XCTFail("Text should not be received after FIN")
+            case .disconnected(_, _, _):
+                self.transport.disconnect()
+                return true
+            default:
+                XCTFail("recieved unexpected server event: \(event)")
+            }
+            return false
+        }
+    }
+    
+    func testCase5_17() {
+        runWebsocket { event in
+            switch event {
+            case .connected(let conn, _):
+                guard let conn = (conn as? MockConnection) else { return false }
+                
+                let continuationFrame = conn.createWriteFrame(opcode: .continueFrame, payload: Data())
+                
+                let textFrame1 = conn.createWriteFrame(opcode: .textFrame, payload: "*".data(using: .utf8)!, isFinal: false)
+                let textFrame2 = conn.createWriteFrame(opcode: .continueFrame, payload: "*".data(using: .utf8)!)
+                
+                
+                (0..<2).forEach { _ in
+                    self.transport.received(data: continuationFrame)
+                    self.transport.received(data: textFrame1)
+                    self.transport.received(data: textFrame2)
+                }
+            case .text:
+                XCTFail("Text should not be received after FIN")
+            case .disconnected(_, _, _):
+                self.transport.disconnect()
+                return true
+            default:
+                XCTFail("recieved unexpected server event: \(event)")
+            }
+            return false
+        }
+    }
+    
+    func testCase5_18() {
+        runWebsocket { event in
+            switch event {
+            case .connected(let conn, _):
+                guard let conn = (conn as? MockConnection) else { return false }
+                
+                var textFrame1 = conn.createWriteFrame(opcode: .textFrame, payload: "*".data(using: .utf8)!, isFinal: false)
+                let textFrame2 = conn.createWriteFrame(opcode: .textFrame, payload: "*".data(using: .utf8)!)
+                textFrame1.append(textFrame2)
+                
+                self.transport.received(data: textFrame1)
+            case .text:
+                XCTFail("Text should not be received after FIN")
+            case .disconnected(_, _, _):
+                self.transport.disconnect()
+                return true
+            default:
+                XCTFail("recieved unexpected server event: \(event)")
+            }
+            return false
+        }
+    }
+    
+    func testCase5_19() {
+        runWebsocket(expectedFulfillmentCount: 3) { event in
+            switch event {
+            case .connected(let conn, _):
+                guard let conn = (conn as? MockConnection) else { return false }
+                
+                var textFrames = [
+                    conn.createWriteFrame(opcode: .textFrame, payload: "1".data(using: .utf8)!, isFinal: false),
+                    conn.createWriteFrame(opcode: .continueFrame, payload: "2".data(using: .utf8)!, isFinal: false),
+                    conn.createWriteFrame(opcode: .continueFrame, payload: "3".data(using: .utf8)!, isFinal: false),
+                    conn.createWriteFrame(opcode: .continueFrame, payload: "4".data(using: .utf8)!, isFinal: false),
+                    conn.createWriteFrame(opcode: .continueFrame, payload: "5".data(using: .utf8)!)
+                ]
+                let ping = conn.createWriteFrame(opcode: .ping, payload: "ping".data(using: .utf8)!)
+                
+                self.transport.received(data: textFrames.removeFirst())
+                self.transport.received(data: textFrames.removeFirst())
+                self.transport.received(data: ping)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                    self.transport.received(data: textFrames.removeFirst())
+                    self.transport.received(data: textFrames.removeFirst())
+                    self.transport.received(data: ping)
+                    self.transport.received(data: textFrames.removeFirst())
+                }
+            case .pong(_, let data):
+                guard let data = data, let text = String(data: data, encoding: .utf8) else { return false }
+                XCTAssertEqual(text, "ping")
+                return true
+            case .text(_, let text):
+                XCTAssertEqual(text, "12345")
+                return true
+            default:
+                XCTFail("recieved unexpected server event: \(event)")
+            }
+            return false
+        }
+    }
+    
+    // testCase 5.20
     
     func testCase6_1_1() {
         runWebsocket { event in
@@ -693,10 +924,8 @@ class FuzzingTests: XCTestCase {
                 guard let conn = (conn as? MockConnection) else { return false }
                 
                 let textData = "".data(using: .utf8)!
-                var firstFrame = conn.createWriteFrame(opcode: .textFrame, payload: textData, isCompressed: false)
-                firstFrame[0] = FrameOpCode.textFrame.rawValue | 0x0
-                var secondFrame = conn.createWriteFrame(opcode: .continueFrame, payload: textData, isCompressed: false)
-                secondFrame[0] = FrameOpCode.continueFrame.rawValue | 0x0
+                let firstFrame = conn.createWriteFrame(opcode: .textFrame, payload: textData, isFinal: false)
+                let secondFrame = conn.createWriteFrame(opcode: .continueFrame, payload: textData, isFinal: false)
                 let lastFrame = conn.createWriteFrame(opcode: .continueFrame, payload: textData, isCompressed: false)
                 
                 self.transport.received(data: firstFrame)
@@ -719,10 +948,9 @@ class FuzzingTests: XCTestCase {
                 guard let conn = (conn as? MockConnection) else { return false }
                 
                 let emptyText = "".data(using: .utf8)!
-                var firstFrame = conn.createWriteFrame(opcode: .textFrame, payload: emptyText, isCompressed: false)
-                firstFrame[0] = FrameOpCode.textFrame.rawValue | 0x0
-                var secondFrame = conn.createWriteFrame(opcode: .continueFrame, payload: "**".data(using: .utf8)!, isCompressed: false)
-                secondFrame[0] = FrameOpCode.continueFrame.rawValue | 0x0
+                
+                let firstFrame = conn.createWriteFrame(opcode: .textFrame, payload: emptyText, isFinal: false)
+                let secondFrame = conn.createWriteFrame(opcode: .continueFrame, payload: "**".data(using: .utf8)!, isFinal: false)
                 let lastFrame = conn.createWriteFrame(opcode: .continueFrame, payload: emptyText, isCompressed: false)
                 
                 self.transport.received(data: firstFrame)
@@ -773,8 +1001,7 @@ class FuzzingTests: XCTestCase {
             case .connected(let conn, _):
                 guard let conn = (conn as? MockConnection) else { return false }
                 
-                var firstFrame = conn.createWriteFrame(opcode: .textFrame, payload: text1.data(using: .utf8)!, isCompressed: false)
-                firstFrame[0] = FrameOpCode.textFrame.rawValue | 0x0
+                let firstFrame = conn.createWriteFrame(opcode: .textFrame, payload: text1.data(using: .utf8)!, isFinal: false)
                 let lastFrame = conn.createWriteFrame(opcode: .continueFrame, payload: text2.data(using: .utf8)!, isCompressed: false)
                 
                 self.transport.received(data: firstFrame)
@@ -801,13 +1028,11 @@ class FuzzingTests: XCTestCase {
             case .connected(let conn, _):
                 guard let conn = (conn as? MockConnection) else { return false }
                 
-                var firstFrame = conn.createWriteFrame(opcode: .textFrame, payload: datas[0], isCompressed: false)
-                firstFrame[0] = FrameOpCode.textFrame.rawValue | 0x0
+                let firstFrame = conn.createWriteFrame(opcode: .textFrame, payload: datas[0], isFinal: false)
                 self.transport.received(data: firstFrame)
                 
                 for i in 1..<(datas.count - 1) {
-                    var frame = conn.createWriteFrame(opcode: .continueFrame, payload: datas[i], isCompressed: false)
-                    frame[0] = FrameOpCode.continueFrame.rawValue | 0x0
+                    let frame = conn.createWriteFrame(opcode: .continueFrame, payload: datas[i], isFinal: false)
                     self.transport.received(data: frame)
                 }
                 
@@ -835,13 +1060,11 @@ class FuzzingTests: XCTestCase {
             case .connected(let conn, _):
                 guard let conn = (conn as? MockConnection) else { return false }
                 
-                var firstFrame = conn.createWriteFrame(opcode: .textFrame, payload: datas[0], isCompressed: false)
-                firstFrame[0] = FrameOpCode.textFrame.rawValue | 0x0
+                let firstFrame = conn.createWriteFrame(opcode: .textFrame, payload: datas[0], isFinal: false)
                 self.transport.received(data: firstFrame)
                 
                 for i in 1..<(datas.count - 1) {
-                    var frame = conn.createWriteFrame(opcode: .continueFrame, payload: datas[i], isCompressed: false)
-                    frame[0] = FrameOpCode.continueFrame.rawValue | 0x0
+                    let frame = conn.createWriteFrame(opcode: .continueFrame, payload: datas[i], isFinal: false)
                     self.transport.received(data: frame)
                 }
                 
@@ -858,16 +1081,13 @@ class FuzzingTests: XCTestCase {
     }
     
     func testCase6_3_1() {
-        let text = """
-        cebae1bdb9cf83cebcceb5eda080656469746564
-        """
+        let data = Data([0xce, 0xba, 0xe1, 0xbd, 0xb9, 0xcf, 0x83, 0xce, 0xbc, 0xce, 0xb5, 0xed, 0xa0, 0x80])
         
         runWebsocket { event in
             switch event {
             case .connected(let conn, _):
-                conn.write(data: text.data(using: .utf8)!, opcode: .textFrame)
-            case .text(_, let receivedText):
-                XCTAssertEqual(receivedText, text)
+                conn.write(data: data, opcode: .textFrame)
+            case .disconnected:
                 return true
             default:
                 XCTFail("recieved unexpected server event: \(event)")
@@ -877,8 +1097,12 @@ class FuzzingTests: XCTestCase {
     }
     
     
-    func splitData(_ data: Data, into chunkCount: Int) -> [Data] {
-        let dataLen = (data as NSData).length
+    //TODO: the rest of them.
+}
+
+extension Data {
+    func split(into chunkCount: Int) -> [Data] {
+        let dataLen = (self as NSData).length
         
         assert(dataLen > chunkCount)
         
@@ -890,12 +1114,10 @@ class FuzzingTests: XCTestCase {
             let chunkBase = chunkCounter * diff
             
             let range = chunkBase..<(chunkBase + diff)
-            chunk = data.subdata(in: range)
+            chunk = self.subdata(in: range)
             
             chunks.append(chunk)
         }
         return chunks
     }
-    
-    //TODO: the rest of them.
 }
